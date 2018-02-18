@@ -21,16 +21,19 @@ int main()
 	bind(listenfd , (sockaddr*)&servaddr , sizeof(servaddr));
 	listen(listenfd , 10);
 	int connfd = accept(listenfd , NULL , NULL);
+
 	char buf [1024];
 	//_STD function<int (void*,size_t)>  func1 = _STD bind(read , connfd,_STD placeholders::_1,_STD placeholders::_2);
 	//Request::from_function(func1);
 	int size = recv(connfd , buf , 1024 , 0);
 	Request re(buf , size);
+
 	Response rs;
 	rs.set_connection(CLOSE);
 	rs.set_content("<html>bad</html>");
-	rs.set_version(HTTP_10);
+	rs.set_version(1,0);
 	rs.set_status_code_(404);
+
 	_STD function<int (void* , size_t)> func2 = _STD bind(write , connfd , _STD placeholders::_1 , _STD placeholders::_2);
 	rs.write(func2);
 

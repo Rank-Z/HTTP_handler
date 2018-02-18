@@ -6,6 +6,7 @@
 #include<algorithm>
 #include<array>
 #include<unordered_map>
+#include<utility>
 #define _STD ::std::
 
 namespace http_handler{
@@ -27,14 +28,8 @@ enum  CONNECTION
 {
 	CLOSE ,
 	KEEP_ALIVE ,
-	UPGRADE
-};
-
-enum  HTTP_VERSION
-{
-	HTTP_10 ,
-	HTTP_11 ,
-	HTTP_20
+	UPGRADE,
+	CONNECTION_UNKNOW
 };
 
 class Request
@@ -46,7 +41,7 @@ public:
 	//_STD function<int (void*,size_t)>  func = _STD bind(read , connfd,_STD placeholders::_1,_STD placeholders::_2);
 	static Request from_function(_STD function<int (void* , size_t)>  func);
 
-	Request();
+	Request()=delete;
 
 	Request(char* buf , unsigned size);
 
@@ -60,7 +55,7 @@ public:
 
 	int get_content_length() const;
 
-	HTTP_VERSION get_vesion() const;
+	_STD pair<int , int> get_http_version() const;
 
 	_STD string get_filepath() const;
 
@@ -86,7 +81,8 @@ private:
 	_STD string filepath_;
 	_STD string args_;
 	_STD string cookie_;
-	HTTP_VERSION version_;
+	int http_version_major_;
+	int http_version_minor_;
 	int content_length_;
 	_STD unordered_map<_STD string , _STD string> fields_;
 };
@@ -96,7 +92,7 @@ class Response
 public:
 	Response();
 
-	void set_version(HTTP_VERSION ver);
+	void set_version(int major,int minor);
 
 	void set_connection(CONNECTION c);
 
@@ -117,14 +113,14 @@ public:
 private:
 	int make_status_code_(char* dest) const;
 
-	HTTP_VERSION version_;
+	int http_version_major_;
+	int http_version_minor_;
 	CONNECTION connection_;
 	int status_code_;
 	int content_length_;
 	_STD unordered_map<_STD string , _STD string> fields_;
 	_STD string content_;
 };
-
 
 } // namespace http_handler
 

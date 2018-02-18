@@ -17,9 +17,6 @@ Request Request::from_function(_STD function<int (void* , size_t)>  func)
 	return ret;
 }
 
-Request::Request() = default;
-
-
 
 Request::Request(char* buf , unsigned size)
 {
@@ -35,7 +32,7 @@ Request::Request(char* buf , unsigned size)
 		if (from == 0)
 		{
 			if (parse_requestline(buf , &buf [last]) < 0)
-				break;
+				return;
 		}
 		else
 		{
@@ -72,7 +69,8 @@ Request::Request(_STD function<int (void* , size_t)>  func)
 Request::Request(Request&& right)
 	:method_(_STD move(right.method_)),connection_(_STD move(right.connection_)),
 	filepath_(_STD move(right.filepath_)),args_(_STD move(right.args_)),
-	version_(_STD move(right.version_)),content_length_(_STD move(right.content_length_)),
+	http_version_major_(right.http_version_major_),http_version_minor_(right.http_version_minor_),
+	content_length_(_STD move(right.content_length_)),
 	fields_(_STD move(right.fields_))
 {   }
 
@@ -91,9 +89,9 @@ int Request::get_content_length() const
 	return content_length_;
 }
 
-HTTP_VERSION Request::get_vesion() const
+_STD pair<int , int> Request::get_http_version() const
 {
-	return version_;
+	return _STD make_pair(http_version_major_ , http_version_minor_);
 }
 
 _STD string Request::get_filepath() const
@@ -155,12 +153,19 @@ int Request::parse_requestline(char* from , char* last)
 	++cur;
 	*last = '\0';
 	float temp = atof(cur);
-	if (temp < 1.09)
-		version_ = HTTP_10;
-	else if (temp < 1.9)
-		version_ = HTTP_11;
+	if (temp < 1.9)
+	{
+		http_version_major_ = 1;
+		if (temp < 1.09)
+			http_version_minor_ = 0;
+		else
+			http_version_minor_ = 1;
+	}
 	else
-		version_ = HTTP_20;
+	{
+		http_version_major_ = 2;
+		http_version_minor_ = 0;
+	}
 	return 1;
 }
 
@@ -227,10 +232,11 @@ void Request::_init()
 		content_length_ = 0;
 	else
 		content_length_ = _STD stoi((*it).second);
+
 	it = fields_.find(_STD string("Connection"));
 	if (it == fields_.cend())
 	{
-		if (version_ < 1.09)
+		if ((http_version_major_==1)&&(http_version_minor_==0))
 			connection_ = CLOSE;
 		else
 			connection_ = KEEP_ALIVE;
@@ -239,21 +245,26 @@ void Request::_init()
 	{
 		if (_STD equal((*it).second.cbegin() , (*it).second.cend() , "keep-alive"))
 			connection_ = KEEP_ALIVE;
+		else if (_STD equal((*it).second.cbegin() , (*it).second.cend() , "Upgrade"))
+			connection_ = UPGRADE;
 		else
 			connection_ = CLOSE;
 	}
+
 	it = fields_.find(_STD string("Cookie"));
 	if (it != fields_.end())
 		cookie_ = (*it).second;
 }
 
 Response::Response()
-	:version_(HTTP_10),connection_(CLOSE),content_length_(0),status_code_(200)
+	:http_version_major_(1),http_version_minor_(0),
+	connection_(CLOSE),content_length_(0),status_code_(200)
 {   }
 
-void Response::set_version(HTTP_VERSION ver)
+void Response::set_version(int major,int minor)
 {
-	version_ = ver;
+	http_version_major_ = major;
+	http_version_minor_ = minor;
 }
 
 
@@ -304,29 +315,36 @@ int Response::set_content(_STD string&& content)
 int Response::write(_STD function<int (void* , size_t)> func) const
 {
 	char buffer [32] = "HTTP/";
-	switch (version_)
+	if (http_version_major_ == 1)
 	{
-	case http_handler::HTTP_10:
-		strcpy(&buffer [5] , "1.0 ");
-		break;
-	case http_handler::HTTP_11:
-		strcpy(&buffer [5] , "1.1 ");
-		break;
-	case http_handler::HTTP_20:
-		strcpy(&buffer [5] , "2.0 ");
-		break;
-	default:
-		return -1;
+		if (http_version_minor_ == 0)
+			strcpy(&buffer [5] , "1.0 ");
+		else if (http_version_minor_ == 1)
+			strcpy(&buffer [5] , "1.1 ");
+		else
+			return -1;
 	}
+	else if (http_version_major_ == 2)
+	{
+		if (http_version_minor_ == 0)
+			strcpy(&buffer [5] , "2.0 ");
+		else
+			return -1;
+	}
+	else
+		return -1;
+
 	if (make_status_code_(&buffer [9]) < 0)
 		return -1;
 	func(buffer , strlen(buffer));
+
 	if (content_length_ >= 0)
 	{
 		int temp=sprintf(buffer , "Content-Length: %d\r\n" , content_length_);
 		buffer [temp] = '\0';
 		func(buffer , strlen(buffer));
 	}
+
 	if (connection_ == CLOSE)
 	{
 		strcpy(buffer , "Connection: close\r\n");
@@ -340,6 +358,7 @@ int Response::write(_STD function<int (void* , size_t)> func) const
 		strcpy(buffer , "Connection: Upgrade\r\n");
 	}
 	func(buffer , strlen(buffer));
+
 	_STD string str_temp;
 	static const _STD string sparator(": ");
 	static const _STD string end_of_line("\r\n");
@@ -352,10 +371,12 @@ int Response::write(_STD function<int (void* , size_t)> func) const
 	}
 	str_temp += end_of_line;
 	func((void*)&(*(str_temp.begin())) , str_temp.size());
+
 	if (!content_.empty())
 	{
 		func((void*)&(*(content_.begin())) , content_.size());
 	}
+
 	return 1;
 }
 
